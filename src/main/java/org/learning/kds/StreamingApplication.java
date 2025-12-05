@@ -1,10 +1,12 @@
 package org.learning.kds;
 
 import lombok.RequiredArgsConstructor;
+import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.connector.kinesis.source.KinesisStreamsSource;
+import org.apache.flink.connector.kinesis.source.config.KinesisStreamsSourceConfigConstants;
 import org.apache.flink.connector.kinesis.source.enumerator.assigner.ShardAssignerFactory;
 import org.apache.flink.formats.json.JsonDeserializationSchema;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.ObjectMapper;
@@ -20,8 +22,8 @@ import org.learning.kds.utils.MetricsAggregator;
 import java.time.Duration;
 import java.time.ZoneOffset;
 
-import static org.apache.flink.connector.kinesis.source.config.KinesisSourceConfigOptions.InitialPosition;
-import static org.apache.flink.connector.kinesis.source.config.KinesisSourceConfigOptions.STREAM_INITIAL_POSITION;
+import static org.apache.flink.connector.kinesis.source.config.KinesisStreamsSourceConfigConstants.STREAM_INITIAL_POSITION;
+import static org.learning.kds.utils.DateConverter.convert;
 
 @RequiredArgsConstructor
 public class StreamingApplication {
@@ -34,7 +36,7 @@ public class StreamingApplication {
 
     public JobID run() throws Exception {
         Configuration sourceConfig = new Configuration();
-        sourceConfig.set(STREAM_INITIAL_POSITION, InitialPosition.LATEST);
+        sourceConfig.set(STREAM_INITIAL_POSITION, KinesisStreamsSourceConfigConstants.InitialPosition.LATEST);
 
         KinesisStreamsSource<Metrics> streamsSource = KinesisStreamsSource.<Metrics>builder()
                 .setStreamArn("arn:aws:kinesis:us-east-1:000000000000:stream/metrics-stream")
@@ -49,7 +51,7 @@ public class StreamingApplication {
                 .<Metrics>forBoundedOutOfOrderness(Duration.ofSeconds(10))
                 .withIdleness(Duration.ofMinutes(1))
                 .withTimestampAssigner((metrics, timestamp) ->
-                        metrics.getFromTimestamp().toEpochSecond(ZoneOffset.UTC)
+                        convert(metrics.getFromTimestamp()).toEpochSecond(ZoneOffset.UTC)
                 );
 
         JsonMapperFactory jsonMapperFactory = () -> new ObjectMapper().registerModule(new JavaTimeModule());
@@ -61,7 +63,7 @@ public class StreamingApplication {
                 .aggregate(new MetricsAggregator())
                 .map(jsonEncoder::encode)
                 .returns(TypeInformation.of(String.class))
-                .print();
+                .print("Metrics -> ");
 
         return env.executeAsync().getJobID();
     }

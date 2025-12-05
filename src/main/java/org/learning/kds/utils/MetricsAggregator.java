@@ -4,6 +4,10 @@ import org.apache.flink.api.common.functions.AggregateFunction;
 import org.learning.kds.model.Metrics;
 
 import java.time.LocalDateTime;
+import java.util.Optional;
+import java.util.function.BiFunction;
+
+import static org.learning.kds.utils.DateConverter.convert;
 
 public class MetricsAggregator implements AggregateFunction<Metrics, Metrics, Metrics> {
 
@@ -13,17 +17,26 @@ public class MetricsAggregator implements AggregateFunction<Metrics, Metrics, Me
     }
 
     @Override
-    public Metrics add(Metrics value, Metrics accumulator) {
-        Double minValue = Math.min(value.getMinValue(), accumulator.getMinValue());
-        Double maxValue = Math.max(value.getMaxValue(), accumulator.getMaxValue());
+    public Metrics add(Metrics metrics, Metrics accumulator) {
+        Double minValue = Optional.ofNullable(accumulator.getMinValue())
+                .map(value -> Math.min(metrics.getMinValue(), value))
+                .orElseGet(metrics::getMinValue);
 
-        LocalDateTime fromTimestamp = value.getFromTimestamp().isBefore(accumulator.getFromTimestamp())
-                ? value.getFromTimestamp()
-                : accumulator.getFromTimestamp();
+        Double maxValue = Optional.ofNullable(accumulator.getMaxValue())
+                .map(value -> Math.max(metrics.getMaxValue(), value))
+                .orElseGet(metrics::getMaxValue);
 
-        LocalDateTime toTimestamp = value.getToTimestamp().isBefore(accumulator.getToTimestamp())
-                ? accumulator.getToTimestamp()
-                : value.getToTimestamp();
+        String fromTimestamp = Optional.ofNullable(accumulator.getFromTimestamp())
+                .filter(value -> compareDates(metrics.getFromTimestamp(), value, LocalDateTime::isAfter))
+                .orElseGet(metrics::getFromTimestamp);
+
+        String toTimestamp = Optional.ofNullable(accumulator.getToTimestamp())
+                .filter(value -> compareDates(metrics.getToTimestamp(), value, LocalDateTime::isBefore))
+                .orElseGet(metrics::getToTimestamp);
+
+        accumulator.setComponentName(metrics.getComponentName());
+        accumulator.setMetricName(metrics.getMetricName());
+        accumulator.setUnit(metrics.getUnit());
 
         accumulator.setMinValue(minValue);
         accumulator.setMaxValue(maxValue);
@@ -41,6 +54,14 @@ public class MetricsAggregator implements AggregateFunction<Metrics, Metrics, Me
     @Override
     public Metrics merge(Metrics a, Metrics b) {
         return add(a, b);
+    }
+
+    private Boolean compareDates(
+            String date1,
+            String date2,
+            BiFunction<LocalDateTime, LocalDateTime, Boolean> function
+    ) {
+        return function.apply(convert(date1), convert(date2));
     }
 
 }
